@@ -100,6 +100,8 @@ async def test_filter_deprecation_like_and_ilike(session, Address, User, UserFil
 @pytest.mark.asyncio
 async def test_api(test_client, uri, filter_, expected_count):
     response = await test_client.get(f"{uri}?{urlencode(filter_)}")
+    print(response.json())
+    print(len(response.json()), expected_count)
     assert len(response.json()) == expected_count
 
 
