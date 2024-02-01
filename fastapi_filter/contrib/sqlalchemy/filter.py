@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 from enum import Enum
+import re
 from typing import Union
 from warnings import warn
 
 from pydantic import ValidationInfo, field_validator
-from sqlalchemy import or_
-from sqlalchemy.orm import Query
+from sqlalchemy import and_, exists, or_, select
+from sqlalchemy.orm import Query, class_mapper, RelationshipProperty
 from sqlalchemy.sql.selectable import Select
 
 from ...base.filter import BaseFilterModel
@@ -32,19 +33,21 @@ def _backward_compatible_value_for_like_and_ilike(value: str):
 
 
 _orm_operator_transformer = {
-    "neq": lambda value: ("__ne__", value),
-    "gt": lambda value: ("__gt__", value),
-    "gte": lambda value: ("__ge__", value),
-    "in": lambda value: ("in_", value),
-    "isnull": lambda value: ("is_", None) if value is True else ("is_not", None),
-    "lt": lambda value: ("__lt__", value),
-    "lte": lambda value: ("__le__", value),
-    "between": lambda value: ("between", (value[0], value[1])),
-    "like": lambda value: ("like", _backward_compatible_value_for_like_and_ilike(value)),
-    "ilike": lambda value: ("ilike", _backward_compatible_value_for_like_and_ilike(value)),
+    "neq": lambda value: ("__ne__", value, None),
+    "gt": lambda value: ("__gt__", value, None),
+    "gte": lambda value: ("__ge__", value, None),
+    "in": lambda value: ("in_", value, None),
+    "isnull": lambda value: ("is_", None, None) if value is True else ("is_not", None, None),
+    "lt": lambda value: ("__lt__", value, None),
+    "lte": lambda value: ("__le__", value, None),
+    "between": lambda value: ("between", (value[0], value[1]), None),
+    "like": lambda value: ("like", _backward_compatible_value_for_like_and_ilike(value), None),
+    "ilike": lambda value: ("ilike", _backward_compatible_value_for_like_and_ilike(value), None),
     # XXX(arthurio): Mysql excludes None values when using `in` or `not in` filters.
-    "not": lambda value: ("is_not", value),
-    "not_in": lambda value: ("not_in", value),
+    "not": lambda value: ("is_not", value, None),
+    "not_in": lambda value: ("not_in", value, None),
+    "and__between": lambda value: ("between", [(v[0], v[1]) for v in value], "and_"),
+    "or__between": lambda value: ("between", [(v[0], v[1]) for v in value], "or_"),
 }
 """Operators à la Django.
 
@@ -90,13 +93,28 @@ class Filter(BaseFilterModel):
 
     @field_validator("*", mode="before")
     def split_str(cls, value, field: ValidationInfo):
-        if field.field_name is not None:
-            if (
+        if field.field_name is not None and isinstance(value, str):
+            if field.field_name.endswith("__or__between") or field.field_name.endswith("__and__between"):
+                if not value:
+                    # Empty string should return [] not ['']
+                    return []
+                # Create a pattern to match the string between square brackets
+                # Example matches: [1,2],[3,4],[5,6]
+                # or [[1,2],[3,4],[5,6]]
+                pattern = re.compile(r"\[([^[\]]*)\]")
+
+                # Find all matches of the pattern in the input string
+                matches = pattern.findall(value)
+
+                # Convert each match to a list of lists
+                return [list(match.split(",")) for match in matches]
+
+            elif (
                 field.field_name == cls.Constants.ordering_field_name
                 or field.field_name.endswith("__in")
                 or field.field_name.endswith("__not_in")
                 or field.field_name.endswith("__between")
-            ) and isinstance(value, str):
+            ):
                 if not value:
                     # Empty string should return [] not ['']
                     return []
@@ -110,8 +128,8 @@ class Filter(BaseFilterModel):
                 query = field_value.filter(query)
             else:
                 if "__" in field_name:
-                    field_name, operator = field_name.split("__")
-                    operator, value = _orm_operator_transformer[operator](value)
+                    field_name, operator = field_name.split("__", maxsplit=1)
+                    operator, value, modifier = _orm_operator_transformer[operator](value)
                 else:
                     operator = "__eq__"
 
@@ -125,9 +143,15 @@ class Filter(BaseFilterModel):
                     model_field = getattr(self.Constants.model, field_name)
                     if isinstance(value, tuple):
                         query = query.filter(getattr(model_field, operator)(*value))
+                    elif isinstance(value, list) and all(isinstance(el, tuple) for el in value):
+                        conditions = [getattr(model_field, operator)(*v) for v in value]
+
+                        if modifier == "and_":
+                            query = query.filter(and_(*conditions))
+                        elif modifier == "or_":
+                            query = query.filter(or_(*conditions))
                     else:
                         query = query.filter(getattr(model_field, operator)(value))
-
         return query
 
     def sort(self, query: Union[Query, Select]):
