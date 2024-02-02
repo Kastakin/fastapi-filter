@@ -189,7 +189,6 @@ class Filter(BaseFilterModel):
                             query = query.filter(or_(*conditions))
                     else:
                         query = query.filter(getattr(model_field, operator)(value))
-        print(query)
         return query
 
     def sort(self, query: Union[Query, Select]):
