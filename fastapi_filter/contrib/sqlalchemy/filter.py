@@ -5,7 +5,7 @@ from typing import List, Tuple, Union, Any
 from warnings import warn
 
 from pydantic import BaseModel, ValidationInfo, field_validator
-from sqlalchemy import and_, or_
+from sqlalchemy import Text, and_, or_
 from sqlalchemy.orm import Query, class_mapper, RelationshipProperty
 from sqlalchemy.sql.selectable import Select
 
@@ -48,6 +48,8 @@ _orm_operator_transformer = {
     "not_in": lambda value: ("not_in", value, None),
     "and__between": lambda value: ("between", [(v[0], v[1]) for v in value], "and_"),
     "or__between": lambda value: ("between", [(v[0], v[1]) for v in value], "or_"),
+    "and__dictop": lambda value: ("dictop", list(value), "and_"),
+    "or__dictop": lambda value: ("dictop", list(value), "or_"),
 }
 """Operators à la Django.
 
@@ -108,6 +110,32 @@ class Filter(BaseFilterModel):
 
                 # Convert each match to a list of lists
                 return [list(match.split(",")) for match in matches]
+            elif field.field_name.endswith("__or__dictop") or field.field_name.endswith("__and__dictop"):
+                print("DICT", value)
+                if not value:
+                    # Empty string should return [] not ['']
+                    return []
+
+                # Create a pattern to match the string between curly brackets
+                # Example matches: {"A":"L", "B":2, "C":"<="}, {"A":"L", "B":2, "C":"<="}, {"A":"L", "B":2, "C":"<="}
+                # or [{"A":"L", "B":2, "C":"<="}, {"A":"L", "B":2, "C":"<="}, {"A":"L", "B":2, "C":"<="}]
+                pattern = re.compile(r"\{([^{}]*)\}")
+
+                # Find all matches of the pattern in the input string
+                matches = pattern.findall(value)
+
+                # From a list of key value pairs, convert each match to a list of dicts
+                # Example: ["'name':'weight', 'op':'>', 'value':'80'"]
+                # or ['"name":"weight", "op":">", "value":"80"']
+                return [
+                    dict(
+                        map(
+                            lambda x: (y.strip().replace("'", "").replace('"', "") for y in x.strip().split(":")),
+                            m.split(","),
+                        )
+                    )
+                    for m in matches
+                ]
 
             elif (
                 field.field_name == cls.Constants.ordering_field_name
@@ -169,27 +197,83 @@ class Filter(BaseFilterModel):
                     operator, value, modifier = _orm_operator_transformer[operator](value)
                 else:
                     operator = "__eq__"
+                    modifier = None
 
                 if field_name == self.Constants.search_field_name and hasattr(self.Constants, "search_model_fields"):
-                    search_filters = [
-                        getattr(self.Constants.model, field).ilike(f"%{value}%")
-                        for field in self.Constants.search_model_fields
-                    ]
-                    query = query.filter(or_(*search_filters))
+                    query = self._apply_search_filter(query, value)
                 else:
-                    model_field = getattr(self.Constants.model, field_name)
-                    if isinstance(value, tuple):
-                        query = query.filter(getattr(model_field, operator)(*value))
-                    elif isinstance(value, list) and all(isinstance(el, tuple) for el in value):
-                        conditions = [getattr(model_field, operator)(*v) for v in value]
-
-                        if modifier == "and_":
-                            query = query.filter(and_(*conditions))
-                        elif modifier == "or_":
-                            query = query.filter(or_(*conditions))
-                    else:
-                        query = query.filter(getattr(model_field, operator)(value))
+                    query = self._apply_field_filter(query, field_name, operator, value, modifier)
         return query
+
+    def _apply_search_filter(self, query: Union[Query, Select], value):
+        """Apply the search filter to the given query.
+
+        Args:
+            query (Union[Query, Select]): The query to apply the filter to.
+            value: The value to search for.
+
+        Returns:
+            Union[Query, Select]: The modified query with the search filter applied.
+        """
+        search_filters = [
+            getattr(self.Constants.model, field).ilike(f"%{value}%") for field in self.Constants.search_model_fields
+        ]
+        return query.filter(or_(*search_filters))
+
+    def _apply_field_filter(self, query: Union[Query, Select], field_name, operator, value, modifier):
+        """Apply the field filter to the given query.
+
+        Args:
+            query (Union[Query, Select]): The query to apply the filter to.
+            field_name: The name of the field to filter on.
+            operator: The operator to use for the filter.
+            value: The value to filter on.
+            modifier: The modifier for the filter.
+
+        Returns:
+            Union[Query, Select]: The modified query with the field filter applied.
+        """
+        model_field = getattr(self.Constants.model, field_name)
+        if isinstance(value, tuple):
+            return query.filter(getattr(model_field, operator)(*value))
+        elif isinstance(value, list) and all(isinstance(el, tuple) for el in value):
+            conditions = [getattr(model_field, operator)(*v) for v in value]
+            if modifier == "and_":
+                return query.filter(and_(*conditions))
+            elif modifier == "or_":
+                return query.filter(or_(*conditions))
+        elif isinstance(value, list) and all(isinstance(el, dict) for el in value):
+            conditions = self._build_conditions_from_dict(value, model_field)
+            if modifier == "and_":
+                return query.filter(and_(*conditions))
+            elif modifier == "or_":
+                return query.filter(or_(*conditions))
+        else:
+            return query.filter(getattr(model_field, operator)(value))
+
+    def _build_conditions_from_dict(self, value, model_field):
+        """Build the conditions from a list of dictionaries.
+
+        Args:
+            value: The list of dictionaries containing the filter conditions.
+            model_field: The model field to apply the conditions on.
+
+        Returns:
+            List: The list of filter conditions.
+        """
+        conditions = []
+        for v in value:
+            print(v)
+            op = v["op"]
+            if op == ">":
+                conditions.append(model_field[v["name"]].cast(Text) > str(v["value"]))
+            elif op == "<":
+                conditions.append(model_field[v["name"]].cast(Text) < str(v["value"]))
+            elif op == "==":
+                conditions.append(model_field[v["name"]].cast(Text) == str(v["value"]))
+            elif op == "!=":
+                conditions.append(model_field[v["name"]].cast(Text) == str(v["value"]))
+        return conditions
 
     def sort(self, query: Union[Query, Select]):
         if not self.ordering_values:

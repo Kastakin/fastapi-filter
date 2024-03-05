@@ -1,11 +1,11 @@
 from datetime import datetime
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, select
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Mapped, declarative_base, relationship
 
@@ -70,6 +70,7 @@ def User(Base, Address, FavoriteSport, Sport):
             backref="users",
             lazy="joined",
         )
+        features = Column(JSON, nullable=True)
 
     return User
 
@@ -118,36 +119,42 @@ async def users(session, User, Address):
             name=None,
             age=21,
             created_at=datetime(2021, 12, 1),
+            features={"height": 120, "weight": 50},
         ),
         User(
             name="Mr Praline",
             age=33,
             created_at=datetime(2021, 12, 1),
             address=Address(street="22 rue Bellier", city="Nantes", country="France"),
+            features={"height": 130, "weight": 40},
         ),
         User(
             name="The colonel",
             age=90,
             created_at=datetime(2021, 12, 2),
             address=Address(street="Wrench", city="Bathroom", country="Clue"),
+            features={"height": 230, "weight": 140},
         ),
         User(
             name="Mr Creosote",
             age=21,
             created_at=datetime(2021, 12, 3),
             address=Address(city="Nantes", country="France"),
+            features={"height": 180, "weight": 70},
         ),
         User(
             name="Rabbit of Caerbannog",
             age=1,
             created_at=datetime(2021, 12, 4),
             address=Address(street="1234 street", city="San Francisco", country="United States"),
+            features={"height": 130, "weight": 10},
         ),
         User(
             name="Gumbys",
             age=50,
             created_at=datetime(2021, 12, 4),
             address=Address(street="4567 avenue", city="Denver", country="United States"),
+            features={"height": 430, "weight": 140},
         ),
     ]
     session.add_all(user_instances)
@@ -277,6 +284,8 @@ def UserFilter(User, Filter, AddressFilter):
         age__between: Optional[List[int]] = None
         age__or__between: Optional[List[List[int]]] = None
         age__and__between: Optional[List[List[int]]] = None
+        features__or__dictop: Optional[List[Dict[str, Any]]] = None
+        features__and__dictop: Optional[List[Dict[str, Any]]] = None
         address: Optional[AddressFilter] = FilterDepends(  # type: ignore[valid-type]
             with_prefix("address", AddressFilter), by_alias=True
         )

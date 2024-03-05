@@ -38,6 +38,8 @@ from sqlalchemy.future import select
         [{"age__and__between": [[21, 33], [25, 40]]}, 1],
         [{"age__and__between": "[[21,33],[25,40]]"}, 1],
         [{"age__and__between": "[21,33],[25,40]"}, 1],
+        [{"features__and__dictop": "[{'name':'weight', 'op':'>', 'value':'80'}]"}, 2],
+        [{"features__and__dictop": [{"name": "weight", "op": ">", "value": "80"}]}, 2],
         [{"age__between": "21,33"}, 3],
         [{"address": {"country__not_in": "France"}}, 3],
         [{"address": {"street__isnull": True}}, 2],
