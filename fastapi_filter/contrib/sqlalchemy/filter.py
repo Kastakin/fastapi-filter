@@ -5,7 +5,7 @@ from typing import List, Tuple, Union, Any
 from warnings import warn
 
 from pydantic import BaseModel, ValidationInfo, field_validator
-from sqlalchemy import Integer, and_, or_
+from sqlalchemy import Integer, Text, and_, or_
 from sqlalchemy.orm import Query, class_mapper, RelationshipProperty
 from sqlalchemy.sql.selectable import Select
 
@@ -264,13 +264,14 @@ class Filter(BaseFilterModel):
         for v in value:
             op = v["op"]
             if op == ">":
-                conditions.append(model_field[v["name"]].cast(Integer) > int(v["value"]))
+                conditions.append(model_field[v["name"]].cast(Text).cast(Integer) > int(v["value"]))
             elif op == "<":
                 conditions.append(model_field[v["name"]].cast(Integer) < int(v["value"]))
             elif op == "==":
                 conditions.append(model_field[v["name"]].cast(Integer) == int(v["value"]))
             elif op == "!=":
                 conditions.append(model_field[v["name"]].cast(Integer) == int(v["value"]))
+        # print([str(c) for c in conditions])
         return conditions
 
     def sort(self, query: Union[Query, Select]):
