@@ -111,7 +111,6 @@ class Filter(BaseFilterModel):
                 # Convert each match to a list of lists
                 return [list(match.split(",")) for match in matches]
             elif field.field_name.endswith("__or__dictop") or field.field_name.endswith("__and__dictop"):
-                print("DICT", value)
                 if not value:
                     # Empty string should return [] not ['']
                     return []
@@ -263,7 +262,6 @@ class Filter(BaseFilterModel):
         """
         conditions = []
         for v in value:
-            print(v)
             op = v["op"]
             if op == ">":
                 conditions.append(model_field[v["name"]].cast(Text) > str(v["value"]))
