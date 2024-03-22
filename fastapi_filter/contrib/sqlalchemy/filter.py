@@ -266,11 +266,11 @@ class Filter(BaseFilterModel):
             if op == ">":
                 conditions.append(model_field[v["name"]].cast(Text).cast(Integer) > int(v["value"]))
             elif op == "<":
-                conditions.append(model_field[v["name"]].cast(Integer) < int(v["value"]))
+                conditions.append(model_field[v["name"]].cast(Text).cast(Integer) < int(v["value"]))
             elif op == "==":
-                conditions.append(model_field[v["name"]].cast(Integer) == int(v["value"]))
+                conditions.append(model_field[v["name"]].cast(Text).cast(Integer) == int(v["value"]))
             elif op == "!=":
-                conditions.append(model_field[v["name"]].cast(Integer) == int(v["value"]))
+                conditions.append(model_field[v["name"]].cast(Text).cast(Integer) == int(v["value"]))
         # print([str(c) for c in conditions])
         return conditions
 
