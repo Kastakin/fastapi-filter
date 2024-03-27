@@ -145,6 +145,8 @@ class Filter(BaseFilterModel):
                 if not value:
                     # Empty string should return [] not ['']
                     return []
+                result = list(value.split(","))
+                result = [item.replace(r"\,", ",") for item in result]
                 return list(value.split(","))
         return value
 
