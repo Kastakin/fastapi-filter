@@ -148,7 +148,7 @@ class Filter(BaseFilterModel):
                 value = value.replace(r"\,", r"\\")
                 result = list(value.split(","))
                 result = [item.replace(r"\\,", ",") for item in result]
-                return list(value.split(","))
+                return result
         return value
 
     def filter(self, query: Union[Query, Select]):
